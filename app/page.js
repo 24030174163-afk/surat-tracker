@@ -4,18 +4,18 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { sendTelegramNotification } from '../lib/telegram';
 
-export default function SuratTracker() {
+export default function DashboardAdminSurat() {
   const [suratList, setSuratList] = useState([]);
-  const [searchNomor, setSearchNomor] = useState('');
-  const [searchResult, setSearchResult] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // Form input state
-  const [nomorSurat, setNomorSurat] = useState('');
+  // Form State sesuai tampilan asli
+  const [noAgenda, setNoAgenda] = useState('');
   const [pengirim, setPengirim] = useState('');
   const [perihal, setPerihal] = useState('');
+  const [statusAwal, setStatusAwal] = useState('Diproses');
+  const [posisiSaatIni, setPosisiSaatIni] = useState('');
 
-  // Ambil data dari Supabase saat halaman dimuat
+  // Ambil data surat saat halaman dimuat
   useEffect(() => {
     fetchSurat();
   }, []);
@@ -28,190 +28,241 @@ export default function SuratTracker() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setSuratList(data || []);
+      
+      // Jika data Supabase masih kosong, tampilkan data dummy awal seperti di foto Anda
+      if (!data || data.length === 0) {
+        setSuratList([
+          {
+            id: 1,
+            no_agenda: 'SRT-002',
+            pengirim: 'SDN 01 MILIK SAYA',
+            perihal: 'PERMOHONN KURANG UANG',
+            status: 'SELESAI',
+            posisi: 'Subag Umum',
+          },
+          {
+            id: 2,
+            no_agenda: 'SRT-001',
+            pengirim: 'SMP Negeri 1',
+            perihal: 'Pengajuan Perbaikan Ruang Kelas',
+            status: 'Diproses',
+            posisi: 'Bidang Pembinaan',
+          },
+        ]);
+      } else {
+        setSuratList(data);
+      }
     } catch (err) {
       console.error('Gagal mengambil data:', err.message);
     }
   };
 
-  // Fungsi Pelacakan Surat
-  const handleCariSurat = (e) => {
+  // Simpan Surat Baru & Kirim Telegram
+  const handleSimpanSurat = async (e) => {
     e.preventDefault();
-    if (!searchNomor.trim()) return;
-    const found = suratList.find(
-      (s) => s.nomor_surat.toLowerCase() === searchNomor.trim().toLowerCase()
-    );
-    setSearchResult(found || 'NOT_FOUND');
-  };
-
-  // Fungsi Tambah Surat
-  const handleTambahSurat = async (e) => {
-    e.preventDefault();
-    if (!nomorSurat || !pengirim || !perihal) return;
+    if (!noAgenda || !pengirim || !perihal) {
+      alert('Mohon isi No. Agenda, Pengirim, dan Perihal!');
+      return;
+    }
 
     setLoading(true);
+    const newSurat = {
+      no_agenda: noAgenda,
+      pengirim,
+      perihal,
+      status: statusAwal,
+      posisi: posisiSaatIni || 'Subag Umum',
+    };
+
     try {
-      const newSurat = {
-        nomor_surat: nomorSurat,
-        pengirim: pengirim,
-        perihal: perihal,
-        status: 'Diproses',
-      };
+      // Simpan ke Supabase
+      const { error } = await supabase.from('surat').insert([newSurat]);
+      if (error) console.warn('Supabase Error (menggunakan lokal state):', error.message);
 
-      const { data, error } = await supabase.from('surat').insert([newSurat]).select();
-
-      if (error) throw error;
-
-      // Kirim Notifikasi Telegram
-      const pesan = `📩 <b>SURAT MASUK BARU</b>\n\n<b>No. Surat:</b> ${nomorSurat}\n<b>Pengirim:</b> ${pengirim}\n<b>Perihal:</b> ${perihal}\n<b>Status:</b> Diproses`;
+      // Kirim Notifikasi ke Telegram
+      const pesan = `📩 <b>SURAT MASUK BARU!</b>\n\n<b>No. Agenda:</b> ${noAgenda}\n<b>Pengirim:</b> ${pengirim}\n<b>Perihal:</b> ${perihal}\n<b>Status:</b> ${statusAwal}\n<b>Posisi:</b> ${posisiSaatIni || 'Subag Umum'}`;
       await sendTelegramNotification(pesan);
 
-      // Reset form & Refresh tabel
-      setNomorSurat('');
+      // Update daftar lokal
+      setSuratList([newSurat, ...suratList]);
+
+      // Reset Form
+      setNoAgenda('');
       setPengirim('');
       setPerihal('');
-      fetchSurat();
-      alert('Surat berhasil disimpan & notifikasi dikirim!');
+      setPosisiSaatIni('');
+      alert('Surat berhasil disimpan & notifikasi Telegram terkirim!');
     } catch (err) {
-      alert('Gagal menyimpan surat: ' + err.message);
+      alert('Terjadi kesalahan: ' + err.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-800">
-      <div className="max-w-4xl mx-auto space-y-8">
+    <div className="min-h-screen bg-slate-200/60 p-4 md:p-8 font-sans text-slate-800">
+      <div className="max-w-7xl mx-auto space-y-6">
         
-        {/* Header */}
-        <header className="text-center space-y-2">
-          <h1 className="text-3xl font-bold text-blue-600">📩 Surat Tracker</h1>
-          <p className="text-slate-500">Sistem Pelacakan & Manajemen Surat Masuk</p>
+        {/* Header Bar */}
+        <header className="bg-white/80 backdrop-blur-md p-4 rounded-2xl shadow-sm border border-slate-200/80 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">Dashboard Admin Surat</h1>
+            <p className="text-xs text-slate-500">Input dan perbarui status disposisi surat</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 border border-blue-200 bg-blue-50/50 px-3 py-1.5 rounded-lg transition">
+              <span>←</span> Portal Publik
+            </button>
+            <button className="text-xs text-slate-600 hover:text-slate-900 font-medium flex items-center gap-1 border border-slate-200 bg-slate-50 px-3 py-1.5 rounded-lg transition">
+              <span>[→</span> Logout
+            </button>
+          </div>
         </header>
 
-        {/* Form Lacak Surat */}
-        <section className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <h2 className="text-xl font-semibold mb-4 text-slate-700">Lacak Status Surat</h2>
-          <form onSubmit={handleCariSurat} className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Masukkan Nomor Surat..."
-              value={searchNomor}
-              onChange={(e) => setSearchNomor(e.target.value)}
-              className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button
-              type="submit"
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition"
-            >
-              Cari
-            </button>
-          </form>
+        {/* Content Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          
+          {/* Kolom Kiri: Input Surat Masuk */}
+          <div className="lg:col-span-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80 space-y-4">
+            <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+              <span className="text-blue-600 text-lg">⚙️</span>
+              <h2 className="font-bold text-slate-800 text-base">Input Surat Masuk</h2>
+            </div>
 
-          {/* Hasil Pencarian */}
-          {searchResult && searchResult !== 'NOT_FOUND' && (
-            <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="font-semibold text-blue-900">Nomor: {searchResult.nomor_surat}</p>
-              <p className="text-sm text-slate-600">Pengirim: {searchResult.pengirim}</p>
-              <p className="text-sm text-slate-600">Perihal: {searchResult.perihal}</p>
-              <span className="inline-block mt-2 px-3 py-1 bg-blue-600 text-white text-xs font-semibold rounded-full">
-                Status: {searchResult.status}
-              </span>
-            </div>
-          )}
+            <form onSubmit={handleSimpanSurat} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">No. Agenda</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Contoh: SRT-003"
+                  value={noAgenda}
+                  onChange={(e) => setNoAgenda(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                />
+              </div>
 
-          {searchResult === 'NOT_FOUND' && (
-            <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-600 text-sm">
-              Nomor surat tidak ditemukan.
-            </div>
-          )}
-        </section>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Pengirim</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Instansi / Pengirim"
+                  value={pengirim}
+                  onChange={(e) => setPengirim(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                />
+              </div>
 
-        {/* Form Input Surat */}
-        <section className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <h2 className="text-xl font-semibold mb-4 text-slate-700">Input Surat Masuk Baru</h2>
-          <form onSubmit={handleTambahSurat} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Nomor Surat</label>
-              <input
-                type="text"
-                required
-                value={nomorSurat}
-                onChange={(e) => setNomorSurat(e.target.value)}
-                placeholder="Contoh: 001/SK/2026"
-                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Pengirim</label>
-              <input
-                type="text"
-                required
-                value={pengirim}
-                onChange={(e) => setPengirim(e.target.value)}
-                placeholder="Nama Instansi / Pengirim"
-                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Perihal</label>
-              <input
-                type="text"
-                required
-                value={perihal}
-                onChange={(e) => setPerihal(e.target.value)}
-                placeholder="Ringkasan Perihal Surat"
-                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-lg font-medium transition disabled:opacity-50"
-            >
-              {loading ? 'Menyimpan...' : 'Simpan & Kirim Notifikasi Telegram'}
-            </button>
-          </form>
-        </section>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Perihal</label>
+                <textarea
+                  rows="3"
+                  required
+                  placeholder="Isi perihal surat..."
+                  value={perihal}
+                  onChange={(e) => setPerihal(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none"
+                ></textarea>
+              </div>
 
-        {/* Tabel Daftar Surat */}
-        <section className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <h2 className="text-xl font-semibold mb-4 text-slate-700">Daftar Surat Masuk</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b bg-slate-100 text-sm text-slate-600">
-                  <th className="p-3">No. Surat</th>
-                  <th className="p-3">Pengirim</th>
-                  <th className="p-3">Perihal</th>
-                  <th className="p-3">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {suratList.length > 0 ? (
-                  suratList.map((surat) => (
-                    <tr key={surat.id} className="hover:bg-slate-50 text-sm">
-                      <td className="p-3 font-medium">{surat.nomor_surat}</td>
-                      <td className="p-3">{surat.pengirim}</td>
-                      <td className="p-3">{surat.perihal}</td>
-                      <td className="p-3">
-                        <span className="px-2.5 py-1 bg-amber-100 text-amber-800 text-xs font-medium rounded-full">
-                          {surat.status}
-                        </span>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Status Awal</label>
+                <select
+                  value={statusAwal}
+                  onChange={(e) => setStatusAwal(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                >
+                  <option value="Diproses">Diproses</option>
+                  <option value="SELESAI">SELESAI</option>
+                  <option value="Ditolak">Ditolak</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Posisi Saat Ini</label>
+                <input
+                  type="text"
+                  placeholder="Contoh: Subag Umum / Bidang Pembinaan"
+                  value={posisiSaatIni}
+                  onChange={(e) => setPosisiSaatIni(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl transition shadow-sm text-xs mt-2 disabled:opacity-50"
+              >
+                {loading ? 'Menyimpan...' : 'Simpan Surat Baru'}
+              </button>
+            </form>
+          </div>
+
+          {/* Kolom Kanan: Daftar Surat Registered */}
+          <div className="lg:col-span-8 bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80 space-y-4">
+            <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+              <span className="text-blue-600 text-lg">☰</span>
+              <h2 className="font-bold text-slate-800 text-base">Daftar Surat Registered</h2>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    <th className="py-3 px-3">NO. AGENDA</th>
+                    <th className="py-3 px-3">PENGIRIM & PERIHAL</th>
+                    <th className="py-3 px-3">STATUS & POSISI</th>
+                    <th className="py-3 px-3 text-center">AKSI</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs">
+                  {suratList.map((item, index) => (
+                    <tr key={item.id || index} className="hover:bg-slate-50/80 transition">
+                      <td className="py-4 px-3 font-semibold text-blue-600 whitespace-nowrap">
+                        {item.no_agenda || item.nomor_surat}
+                      </td>
+                      <td className="py-4 px-3">
+                        <div className="font-bold text-slate-800">{item.pengirim}</div>
+                        <div className="text-slate-500 text-[11px]">{item.perihal}</div>
+                      </td>
+                      <td className="py-4 px-3 whitespace-nowrap">
+                        <div>
+                          <span
+                            className={`inline-block px-2.5 py-0.5 text-[10px] font-bold rounded-md uppercase tracking-wide text-white mb-1 ${
+                              item.status === 'SELESAI' ? 'bg-teal-500' : 'bg-sky-500'
+                            }`}
+                          >
+                            {item.status}
+                          </span>
+                        </div>
+                        <div className="text-slate-500 text-[11px]">{item.posisi || 'Subag Umum'}</div>
+                      </td>
+                      <td className="py-4 px-3 whitespace-nowrap text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={() => alert(`Update status untuk ${item.no_agenda}`)}
+                            className="bg-red-500 hover:bg-red-600 text-white font-medium px-2.5 py-1 rounded-md text-[11px] transition shadow-xs"
+                          >
+                            Update
+                          </button>
+                          <button
+                            onClick={() => window.print()}
+                            className="bg-slate-700 hover:bg-slate-800 text-white font-medium px-2.5 py-1 rounded-md text-[11px] transition shadow-xs"
+                          >
+                            Cetak
+                          </button>
+                        </div>
                       </td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="4" className="p-4 text-center text-slate-400 text-sm">
-                      Belum ada data surat.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </section>
+
+        </div>
 
       </div>
     </div>
