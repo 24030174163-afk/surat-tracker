@@ -1,9 +1,9 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Tracker Surat'
+  title: 'Tracker'
   description: 'Aplikasi Pelacakan dan Disposisi Surat Masuk',
-  manifest: '/manifest.json',
+  manifest: '/manifest.webmanifest',
 };
 
 export const viewport = {
