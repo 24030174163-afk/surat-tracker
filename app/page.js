@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { sendTelegramNotification } from '../lib/telegram';
+import { sendNotification } from '../lib/notification';
 
 // 🔑 KATA SANDI ADMIN
 const ADMIN_PASSWORD = 'admin123';
@@ -25,6 +25,7 @@ export default function SuratApp() {
   const [noAgenda, setNoAgenda] = useState('');
   const [pengirim, setPengirim] = useState('');
   const [perihal, setPerihal] = useState('');
+  const [noWa, setNoWa] = useState(''); // <-- Input Nomor WA
   const [statusAwal, setStatusAwal] = useState('Diproses');
   const [posisiSaatIni, setPosisiSaatIni] = useState('Subag Umum');
 
@@ -86,7 +87,7 @@ export default function SuratApp() {
     setActiveTab('public');
   };
 
-  // Simpan Surat Baru
+  // Simpan Surat Baru (Dual Notifikasi: Telegram & WhatsApp)
   const handleSimpanSurat = async (e) => {
     e.preventDefault();
     if (!noAgenda || !pengirim || !perihal) {
@@ -112,12 +113,23 @@ export default function SuratApp() {
         return;
       }
 
-      const pesan = `📩 <b>SURAT MASUK BARU</b>\n\n<b>No. Agenda:</b> ${noAgenda}\n<b>Pengirim:</b> ${pengirim}\n<b>Perihal:</b> ${perihal}\n<b>Status:</b> ${statusAwal}\n<b>Posisi:</b> ${posisiSaatIni || 'Subag Umum'}`;
-      await sendTelegramNotification(pesan);
+      // Format Pesan Notifikasi Dual Channel
+      const pesanTelegram = `📩 <b>SURAT MASUK BARU</b>\n\n<b>No. Agenda:</b> ${noAgenda}\n<b>Pengirim:</b> ${pengirim}\n<b>Perihal:</b> ${perihal}\n<b>Status:</b> ${statusAwal}\n<b>Posisi:</b> ${posisiSaatIni || 'Subag Umum'}`;
+      
+      const pesanWA = `*SURAT MASUK BERHASIL TERDAFTAR*\n\nNo. Agenda: ${noAgenda}\nPengirim: ${pengirim}\nPerihal: ${perihal}\nStatus: ${statusAwal}\nPosisi: ${posisiSaatIni || 'Subag Umum'}\n\nLacak status surat Anda secara berkala di portal publik.`;
 
+      // Kirim Notifikasi
+      await sendNotification({
+        pesanTelegram,
+        pesanWA,
+        nomorWaTarget: noWa,
+      });
+
+      // Reset Form Input
       setNoAgenda('');
       setPengirim('');
       setPerihal('');
+      setNoWa('');
       setPosisiSaatIni('Subag Umum');
       await fetchSurat();
       alert('Surat berhasil disimpan & notifikasi terkirim!');
@@ -140,7 +152,7 @@ export default function SuratApp() {
     setSelectedSurat(null);
   };
 
-  // Simpan Perubahan Status & Posisi
+  // Simpan Perubahan Status & Posisi (Dual Notifikasi)
   const handleSaveUpdate = async (e) => {
     e.preventDefault();
     if (!selectedSurat) return;
@@ -166,13 +178,23 @@ export default function SuratApp() {
         return;
       }
 
-      const pesan = `🔄 <b>UPDATE DISPOSISI SURAT</b>\n\n` +
+      const pesanTelegram = `🔄 <b>UPDATE DISPOSISI SURAT</b>\n\n` +
         `<b>No. Agenda:</b> ${selectedSurat.no_agenda}\n` +
         `<b>Pengirim:</b> ${selectedSurat.pengirim}\n` +
         `<b>Status Baru:</b> ${editStatus}\n` +
         `<b>Posisi Baru:</b> ${editPosisi}`;
-      
-      await sendTelegramNotification(pesan);
+
+      const pesanWA = `*UPDATE DISPOSISI SURAT*\n\n` +
+        `No. Agenda: ${selectedSurat.no_agenda}\n` +
+        `Pengirim: ${selectedSurat.pengirim}\n` +
+        `Status Baru: ${editStatus}\n` +
+        `Posisi Baru: ${editPosisi}`;
+
+      await sendNotification({
+        pesanTelegram,
+        pesanWA,
+        nomorWaTarget: selectedSurat.no_wa || '',
+      });
 
       await fetchSurat();
       setSelectedSurat(null);
@@ -422,6 +444,17 @@ export default function SuratApp() {
                       </div>
 
                       <div>
+                        <label className="block font-bold text-slate-700 mb-1">No. WhatsApp Pengirim (Opsional)</label>
+                        <input
+                          type="text"
+                          placeholder="Contoh: 081234567890"
+                          value={noWa}
+                          onChange={(e) => setNoWa(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div>
                         <label className="block font-bold text-slate-700 mb-1">Status Awal</label>
                         <select
                           value={statusAwal}
@@ -450,7 +483,7 @@ export default function SuratApp() {
                         disabled={loading}
                         className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl transition shadow-xs text-xs mt-2 disabled:opacity-50"
                       >
-                        {loading ? 'Menyimpan...' : 'Simpan Surat Baru'}
+                        {loading ? 'Menyimpan & Mengirim...' : 'Simpan Surat Baru'}
                       </button>
                     </form>
                   </div>
@@ -632,13 +665,23 @@ export default function SuratApp() {
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 resize-none"
                   ></textarea>
                 </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">No. WhatsApp Anda (Opsional)</label>
+                  <input
+                    type="text"
+                    placeholder="Contoh: 081234567890"
+                    value={noWa}
+                    onChange={(e) => setNoWa(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
 
                 <button
                   type="submit"
                   disabled={loading}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-xl transition shadow-xs"
                 >
-                  {loading ? 'Kirim...' : 'Kirim Pengajuan Surat'}
+                  {loading ? 'Mengirim...' : 'Kirim Pengajuan Surat'}
                 </button>
               </form>
             </div>
