@@ -1,8 +1,11 @@
-import './globals.css';
-
 export const metadata = {
-  title: 'Surat Tracker',
-  description: 'Sistem Pelacakan Surat Masuk',
+  title: 'Sistem Lacak Surat DPD',
+  description: 'Aplikasi Pelacakan dan Disposisi Surat Masuk',
+  manifest: '/manifest.webmanifest',
+};
+
+export const viewport = {
+  themeColor: '#2563eb',
 };
 
 export default function RootLayout({ children }) {
