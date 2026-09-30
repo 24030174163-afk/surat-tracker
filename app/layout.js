@@ -1,3 +1,5 @@
+import './globals.css';
+
 export const metadata = {
   title: 'Sistem Lacak Surat DPD',
   description: 'Aplikasi Pelacakan dan Disposisi Surat Masuk',
