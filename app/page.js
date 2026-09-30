@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { sendTelegramNotification } from '../lib/telegram';
 
-// 🔑 KATA SANDI ADMIN (Bisa Anda ubah di sini)
-const ADMIN_PASSWORD = 'dikdas123';
+// 🔑 KATA SANDI ADMIN
+const ADMIN_PASSWORD = 'admin123';
 
 export default function SuratApp() {
   // Mode Navigasi: 'admin' atau 'public'
@@ -16,8 +16,9 @@ export default function SuratApp() {
   const [inputPassword, setInputPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
 
-  // State Data Surat
+  // State Data Surat & Filter
   const [suratList, setSuratList] = useState([]);
+  const [filterStatus, setFilterStatus] = useState('Semua');
   const [loading, setLoading] = useState(false);
 
   // Form State (Input Surat Baru)
@@ -37,7 +38,7 @@ export default function SuratApp() {
   const [editPosisi, setEditPosisi] = useState('');
   const [editLoading, setEditLoading] = useState(false);
 
-  // Cek Status Login Admin dari SessionStorage saat aplikasi dibuka
+  // Cek Status Login Admin dari SessionStorage
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const savedAuth = sessionStorage.getItem('isAdminAuth');
@@ -183,6 +184,33 @@ export default function SuratApp() {
     }
   };
 
+  // Fitur Export CSV (Rekap Data)
+  const handleExportCSV = () => {
+    if (suratList.length === 0) {
+      alert('Belum ada data untuk diexport!');
+      return;
+    }
+
+    const headers = ['No. Agenda', 'Pengirim', 'Perihal', 'Status', 'Posisi', 'Tanggal Masuk'];
+    const rows = suratList.map((item) => [
+      `"${item.no_agenda || ''}"`,
+      `"${item.pengirim || ''}"`,
+      `"${item.perihal || ''}"`,
+      `"${item.status || ''}"`,
+      `"${item.posisi || ''}"`,
+      `"${item.created_at ? new Date(item.created_at).toLocaleDateString('id-ID') : ''}"`
+    ]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `rekap_surat_masuk_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // Cari Surat di Portal Publik
   const handleCariSurat = (e) => {
     e.preventDefault();
@@ -192,6 +220,18 @@ export default function SuratApp() {
     );
     setSearchResult(found || 'NOT_FOUND');
   };
+
+  // Perhitungan Data Analitik (Dashboard Stats)
+  const totalSurat = suratList.length;
+  const diprosesCount = suratList.filter((s) => s.status === 'Diproses').length;
+  const selesaiCount = suratList.filter((s) => s.status === 'SELESAI').length;
+  const ditolakCount = suratList.filter((s) => s.status === 'Ditolak').length;
+
+  // Data Terfilter untuk Tabel
+  const filteredSuratList = suratList.filter((item) => {
+    if (filterStatus === 'Semua') return true;
+    return item.status === filterStatus;
+  });
 
   return (
     <div className="min-h-screen bg-slate-200/60 p-4 md:p-8 font-sans text-slate-800">
@@ -205,7 +245,7 @@ export default function SuratApp() {
             </h1>
             <p className="text-xs text-slate-500">
               {activeTab === 'admin' 
-                ? 'Kelola dan perbarui status disposisi surat' 
+                ? 'Analitik, kelola dan perbarui status disposisi surat' 
                 : 'Lacak status surat & kirim pengajuan surat masuk'}
             </p>
           </div>
@@ -245,8 +285,8 @@ export default function SuratApp() {
         {/* TAMPILAN DASHBOARD ADMIN */}
         {activeTab === 'admin' && (
           <>
-            {/* TAMPILAN LOGIN JIKA BELUM TERAUTENTIKASI */}
             {!isAdminAuth ? (
+              /* FORM LOGIN ADMIN */
               <div className="max-w-md mx-auto my-12 bg-white p-8 rounded-2xl shadow-sm border border-slate-200 space-y-6 text-center">
                 <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center text-2xl mx-auto border border-blue-100">
                   🔐
@@ -283,156 +323,234 @@ export default function SuratApp() {
               </div>
             ) : (
               /* TAMPILAN UTAMA ADMIN SETELAH LOGIN */
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                {/* Form Input Surat Masuk */}
-                <div className="lg:col-span-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
-                  <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-                    <span className="text-blue-600 text-lg">⚙️</span>
-                    <h2 className="font-bold text-slate-800 text-base">Input Surat Masuk</h2>
+              <div className="space-y-6">
+                
+                {/* WIDGET DASHBOARD ANALITIK */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">TOTAL SURAT</p>
+                      <h3 className="text-2xl font-extrabold text-slate-800 mt-1">{totalSurat}</h3>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Surat terdaftar di sistem</p>
+                    </div>
+                    <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center text-xl font-bold border border-blue-100">
+                      📊
+                    </div>
                   </div>
 
-                  <form onSubmit={handleSimpanSurat} className="space-y-3.5 text-xs">
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
                     <div>
-                      <label className="block font-bold text-slate-700 mb-1">No. Agenda</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Contoh: SRT-001"
-                        value={noAgenda}
-                        onChange={(e) => setNoAgenda(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
+                      <p className="text-[11px] font-bold text-sky-500 uppercase tracking-wider">DIPROSES</p>
+                      <h3 className="text-2xl font-extrabold text-slate-800 mt-1">{diprosesCount}</h3>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        {totalSurat > 0 ? `${Math.round((diprosesCount / totalSurat) * 100)}% dari total surat` : '0%'}
+                      </p>
                     </div>
+                    <div className="w-12 h-12 bg-sky-50 text-sky-600 rounded-2xl flex items-center justify-center text-xl font-bold border border-sky-100">
+                      ⏳
+                    </div>
+                  </div>
 
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
                     <div>
-                      <label className="block font-bold text-slate-700 mb-1">Pengirim</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Nama Instansi / Pengirim"
-                        value={pengirim}
-                        onChange={(e) => setPengirim(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
+                      <p className="text-[11px] font-bold text-teal-600 uppercase tracking-wider">SELESAI</p>
+                      <h3 className="text-2xl font-extrabold text-slate-800 mt-1">{selesaiCount}</h3>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Disposisi rampung</p>
                     </div>
+                    <div className="w-12 h-12 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center text-xl font-bold border border-teal-100">
+                      ✅
+                    </div>
+                  </div>
 
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
                     <div>
-                      <label className="block font-bold text-slate-700 mb-1">Perihal</label>
-                      <textarea
-                        rows="3"
-                        required
-                        placeholder="Isi perihal surat..."
-                        value={perihal}
-                        onChange={(e) => setPerihal(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                      ></textarea>
+                      <p className="text-[11px] font-bold text-red-500 uppercase tracking-wider">DITOLAK</p>
+                      <h3 className="text-2xl font-extrabold text-slate-800 mt-1">{ditolakCount}</h3>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Pengajuan berkas ditolak</p>
                     </div>
-
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Status Awal</label>
-                      <select
-                        value={statusAwal}
-                        onChange={(e) => setStatusAwal(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="Diproses">Diproses</option>
-                        <option value="SELESAI">SELESAI</option>
-                        <option value="Ditolak">Ditolak</option>
-                      </select>
+                    <div className="w-12 h-12 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center text-xl font-bold border border-red-100">
+                      ❌
                     </div>
-
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Posisi Saat Ini</label>
-                      <input
-                        type="text"
-                        placeholder="Subag Umum / Bidang Pembinaan"
-                        value={posisiSaatIni}
-                        onChange={(e) => setPosisiSaatIni(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={loading}
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl transition shadow-xs text-xs mt-2 disabled:opacity-50"
-                    >
-                      {loading ? 'Menyimpan...' : 'Simpan Surat Baru'}
-                    </button>
-                  </form>
+                  </div>
                 </div>
 
-                {/* Tabel Daftar Surat */}
-                <div className="lg:col-span-8 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
-                  <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-                    <span className="text-blue-600 text-lg">☰</span>
-                    <h2 className="font-bold text-slate-800 text-base">Daftar Surat Registered</h2>
+                {/* FORM INPUT & TABEL SURAT */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                  
+                  {/* Form Input Surat Masuk */}
+                  <div className="lg:col-span-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+                    <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                      <span className="text-blue-600 text-lg">⚙️</span>
+                      <h2 className="font-bold text-slate-800 text-base">Input Surat Masuk</h2>
+                    </div>
+
+                    <form onSubmit={handleSimpanSurat} className="space-y-3.5 text-xs">
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">No. Agenda</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Contoh: SRT-001"
+                          value={noAgenda}
+                          onChange={(e) => setNoAgenda(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Pengirim</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Nama Instansi / Pengirim"
+                          value={pengirim}
+                          onChange={(e) => setPengirim(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Perihal</label>
+                        <textarea
+                          rows="3"
+                          required
+                          placeholder="Isi perihal surat..."
+                          value={perihal}
+                          onChange={(e) => setPerihal(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                        ></textarea>
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Status Awal</label>
+                        <select
+                          value={statusAwal}
+                          onChange={(e) => setStatusAwal(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="Diproses">Diproses</option>
+                          <option value="SELESAI">SELESAI</option>
+                          <option value="Ditolak">Ditolak</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Posisi Saat Ini</label>
+                        <input
+                          type="text"
+                          placeholder="Subag Umum / Bidang Pembinaan"
+                          value={posisiSaatIni}
+                          onChange={(e) => setPosisiSaatIni(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={loading}
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl transition shadow-xs text-xs mt-2 disabled:opacity-50"
+                      >
+                        {loading ? 'Menyimpan...' : 'Simpan Surat Baru'}
+                      </button>
+                    </form>
                   </div>
 
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                          <th className="py-3 px-3">NO. AGENDA</th>
-                          <th className="py-3 px-3">PENGIRIM & PERIHAL</th>
-                          <th className="py-3 px-3">STATUS & POSISI</th>
-                          <th className="py-3 px-3 text-center">AKSI</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 text-xs">
-                        {suratList.length > 0 ? (
-                          suratList.map((item, index) => (
-                            <tr key={item.id || index} className="hover:bg-slate-50/80 transition">
-                              <td className="py-4 px-3 font-semibold text-blue-600 whitespace-nowrap">
-                                {item.no_agenda}
-                              </td>
-                              <td className="py-4 px-3">
-                                <div className="font-bold text-slate-800">{item.pengirim}</div>
-                                <div className="text-slate-500 text-[11px]">{item.perihal}</div>
-                              </td>
-                              <td className="py-4 px-3 whitespace-nowrap">
-                                <span
-                                  className={`inline-block px-2.5 py-0.5 text-[10px] font-bold rounded-md uppercase tracking-wide text-white mb-1 ${
-                                    item.status === 'SELESAI'
-                                      ? 'bg-teal-500'
-                                      : item.status === 'Ditolak'
-                                      ? 'bg-red-500'
-                                      : 'bg-sky-500'
-                                  }`}
-                                >
-                                  {item.status || 'Diproses'}
-                                </span>
-                                <div className="text-slate-500 text-[11px]">{item.posisi || 'Subag Umum'}</div>
-                              </td>
-                              <td className="py-4 px-3 whitespace-nowrap text-center">
-                                <div className="flex items-center justify-center gap-1.5">
-                                  <button
-                                    onClick={() => handleOpenEditModal(item)}
-                                    className="bg-red-500 hover:bg-red-600 text-white font-medium px-2.5 py-1 rounded-md text-[11px] transition shadow-xs"
+                  {/* Tabel Daftar Surat dengan Filter & Export CSV */}
+                  <div className="lg:col-span-8 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-100">
+                      <div className="flex items-center gap-2">
+                        <span className="text-blue-600 text-lg">☰</span>
+                        <h2 className="font-bold text-slate-800 text-base">Daftar Surat Registered</h2>
+                      </div>
+
+                      {/* FILTER & TOMBOL EXPORT CSV */}
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={filterStatus}
+                          onChange={(e) => setFilterStatus(e.target.value)}
+                          className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-slate-50 font-medium focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="Semua">Semua Status</option>
+                          <option value="Diproses">Diproses</option>
+                          <option value="SELESAI">SELESAI</option>
+                          <option value="Ditolak">Ditolak</option>
+                        </select>
+
+                        <button
+                          onClick={handleExportCSV}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg text-xs transition shadow-xs flex items-center gap-1"
+                        >
+                          📥 Export CSV
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                            <th className="py-3 px-3">NO. AGENDA</th>
+                            <th className="py-3 px-3">PENGIRIM & PERIHAL</th>
+                            <th className="py-3 px-3">STATUS & POSISI</th>
+                            <th className="py-3 px-3 text-center">AKSI</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs">
+                          {filteredSuratList.length > 0 ? (
+                            filteredSuratList.map((item, index) => (
+                              <tr key={item.id || index} className="hover:bg-slate-50/80 transition">
+                                <td className="py-4 px-3 font-semibold text-blue-600 whitespace-nowrap">
+                                  {item.no_agenda}
+                                </td>
+                                <td className="py-4 px-3">
+                                  <div className="font-bold text-slate-800">{item.pengirim}</div>
+                                  <div className="text-slate-500 text-[11px]">{item.perihal}</div>
+                                </td>
+                                <td className="py-4 px-3 whitespace-nowrap">
+                                  <span
+                                    className={`inline-block px-2.5 py-0.5 text-[10px] font-bold rounded-md uppercase tracking-wide text-white mb-1 ${
+                                      item.status === 'SELESAI'
+                                        ? 'bg-teal-500'
+                                        : item.status === 'Ditolak'
+                                        ? 'bg-red-500'
+                                        : 'bg-sky-500'
+                                    }`}
                                   >
-                                    Update
-                                  </button>
-                                  <button
-                                    onClick={() => window.print()}
-                                    className="bg-slate-700 hover:bg-slate-800 text-white font-medium px-2.5 py-1 rounded-md text-[11px] transition shadow-xs"
-                                  >
-                                    Cetak
-                                  </button>
-                                </div>
+                                    {item.status || 'Diproses'}
+                                  </span>
+                                  <div className="text-slate-500 text-[11px]">{item.posisi || 'Subag Umum'}</div>
+                                </td>
+                                <td className="py-4 px-3 whitespace-nowrap text-center">
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <button
+                                      onClick={() => handleOpenEditModal(item)}
+                                      className="bg-red-500 hover:bg-red-600 text-white font-medium px-2.5 py-1 rounded-md text-[11px] transition shadow-xs"
+                                    >
+                                      Update
+                                    </button>
+                                    <button
+                                      onClick={() => window.print()}
+                                      className="bg-slate-700 hover:bg-slate-800 text-white font-medium px-2.5 py-1 rounded-md text-[11px] transition shadow-xs"
+                                    >
+                                      Cetak
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan="4" className="text-center py-6 text-slate-400">
+                                Tidak ada data surat yang sesuai dengan filter.
                               </td>
                             </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan="4" className="text-center py-6 text-slate-400">
-                              Belum ada data surat.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
+
               </div>
             )}
           </>
