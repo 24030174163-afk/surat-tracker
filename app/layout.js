@@ -1,9 +1,9 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Sistem Lacak Surat DPD',
+  title: 'Tracker Surat'
   description: 'Aplikasi Pelacakan dan Disposisi Surat Masuk',
-  manifest: '/manifest.webmanifest',
+  manifest: '/manifest.json',
 };
 
 export const viewport = {
