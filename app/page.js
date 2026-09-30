@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { sendNotification } from '../lib/notification';
 
 // 🔑 KATA SANDI ADMIN
-const ADMIN_PASSWORD = 'admin123';
+const ADMIN_PASSWORD = 'dikdas123';
 
 export default function SuratApp() {
   // Mode Navigasi: 'admin' atau 'public'
