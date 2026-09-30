@@ -25,21 +25,26 @@ export default function SuratApp() {
   const [noAgenda, setNoAgenda] = useState('');
   const [pengirim, setPengirim] = useState('');
   const [perihal, setPerihal] = useState('');
-  const [noWa, setNoWa] = useState(''); // <-- Input Nomor WA
+  const [noWa, setNoWa] = useState('');
   const [statusAwal, setStatusAwal] = useState('Diproses');
   const [posisiSaatIni, setPosisiSaatIni] = useState('Subag Umum');
+  
+  // State Jenis Surat & Upload File
+  const [jenisSurat, setJenisSurat] = useState('Online'); // 'Online' | 'Offline'
+  const [selectedFile, setSelectedFile] = useState(null);
 
   // State Lacak Surat (Portal Publik)
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResult, setSearchResult] = useState(null);
 
-  // Modal State (Edit Status & Posisi Admin)
+  // Modal State (Edit Status, Posisi & WA Admin)
   const [selectedSurat, setSelectedSurat] = useState(null);
   const [editStatus, setEditStatus] = useState('Diproses');
   const [editPosisi, setEditPosisi] = useState('');
+  const [editNoWa, setEditNoWa] = useState('');
   const [editLoading, setEditLoading] = useState(false);
 
-  // Cek Status Login Admin dari SessionStorage
+  // Cek Status Login Admin
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const savedAuth = sessionStorage.getItem('isAdminAuth');
@@ -67,6 +72,27 @@ export default function SuratApp() {
     }
   };
 
+  // Fungsi Helper Upload File ke Supabase Storage
+  const uploadFileToStorage = async (file) => {
+    if (!file) return null;
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+    
+    const { data, error } = await supabase.storage
+      .from('surat-files')
+      .upload(fileName, file);
+
+    if (error) {
+      throw new Error('Gagal mengunggah file ke Supabase Storage: ' + error.message);
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from('surat-files')
+      .getPublicUrl(fileName);
+
+    return publicUrlData.publicUrl;
+  };
+
   // Handler Login Admin
   const handleAdminLogin = (e) => {
     e.preventDefault();
@@ -87,7 +113,7 @@ export default function SuratApp() {
     setActiveTab('public');
   };
 
-  // Simpan Surat Baru (Dual Notifikasi: Telegram & WhatsApp)
+  // Simpan Surat Baru (Admin & Public)
   const handleSimpanSurat = async (e) => {
     e.preventDefault();
     if (!noAgenda || !pengirim || !perihal) {
@@ -96,15 +122,32 @@ export default function SuratApp() {
     }
 
     setLoading(true);
-    const newSurat = {
-      no_agenda: noAgenda,
-      pengirim,
-      perihal,
-      status: statusAwal,
-      posisi: posisiSaatIni || 'Subag Umum',
-    };
-
     try {
+      let uploadedFotoUrl = null;
+      let uploadedPdfUrl = null;
+
+      // Upload file jika ada
+      if (selectedFile) {
+        const fileUrl = await uploadFileToStorage(selectedFile);
+        if (jenisSurat === 'Offline') {
+          uploadedFotoUrl = fileUrl;
+        } else {
+          uploadedPdfUrl = fileUrl;
+        }
+      }
+
+      const newSurat = {
+        no_agenda: noAgenda,
+        pengirim,
+        perihal,
+        status: statusAwal,
+        posisi: posisiSaatIni || 'Subag Umum',
+        no_wa: noWa,
+        jenis_surat: jenisSurat,
+        foto_url: uploadedFotoUrl,
+        pdf_url: uploadedPdfUrl,
+      };
+
       const { error } = await supabase.from('surat').insert([newSurat]);
 
       if (error) {
@@ -113,24 +156,36 @@ export default function SuratApp() {
         return;
       }
 
-      // Format Pesan Notifikasi Dual Channel
-      const pesanTelegram = `📩 <b>SURAT MASUK BARU</b>\n\n<b>No. Agenda:</b> ${noAgenda}\n<b>Pengirim:</b> ${pengirim}\n<b>Perihal:</b> ${perihal}\n<b>Status:</b> ${statusAwal}\n<b>Posisi:</b> ${posisiSaatIni || 'Subag Umum'}`;
-      
-      const pesanWA = `*SURAT MASUK BERHASIL TERDAFTAR*\n\nNo. Agenda: ${noAgenda}\nPengirim: ${pengirim}\nPerihal: ${perihal}\nStatus: ${statusAwal}\nPosisi: ${posisiSaatIni || 'Subag Umum'}\n\nLacak status surat Anda secara berkala di portal publik.`;
+      const pesanTelegram = `📩 <b>SURAT MASUK BARU (${jenisSurat.toUpperCase()})</b>\n\n` +
+        `<b>No. Agenda:</b> ${noAgenda}\n` +
+        `<b>Pengirim:</b> ${pengirim}\n` +
+        `<b>Perihal:</b> ${perihal}\n` +
+        `<b>Jenis:</b> ${jenisSurat}\n` +
+        `<b>Status:</b> ${statusAwal}\n` +
+        `<b>Posisi:</b> ${posisiSaatIni || 'Subag Umum'}`;
 
-      // Kirim Notifikasi
+      const pesanWA = `*SURAT MASUK BERHASIL TERDAFTAR*\n\n` +
+        `No. Agenda: ${noAgenda}\n` +
+        `Pengirim: ${pengirim}\n` +
+        `Perihal: ${perihal}\n` +
+        `Jenis Surat: ${jenisSurat}\n` +
+        `Status: ${statusAwal}\n` +
+        `Posisi: ${posisiSaatIni || 'Subag Umum'}\n\n` +
+        `Lacak status surat Anda secara berkala di portal publik.`;
+
       await sendNotification({
         pesanTelegram,
         pesanWA,
         nomorWaTarget: noWa,
       });
 
-      // Reset Form Input
+      // Reset Form
       setNoAgenda('');
       setPengirim('');
       setPerihal('');
       setNoWa('');
       setPosisiSaatIni('Subag Umum');
+      setSelectedFile(null);
       await fetchSurat();
       alert('Surat berhasil disimpan & notifikasi terkirim!');
     } catch (err) {
@@ -140,28 +195,31 @@ export default function SuratApp() {
     }
   };
 
-  // Buka Modal Edit
+  // Modal Edit
   const handleOpenEditModal = (item) => {
     setSelectedSurat(item);
     setEditStatus(item.status || 'Diproses');
     setEditPosisi(item.posisi || 'Subag Umum');
+    setEditNoWa(item.no_wa || '');
   };
 
-  // Tutup Modal Edit
   const handleCloseEditModal = () => {
     setSelectedSurat(null);
   };
 
-  // Simpan Perubahan Status & Posisi (Dual Notifikasi)
+  // Update Status & Disposisi
   const handleSaveUpdate = async (e) => {
     e.preventDefault();
     if (!selectedSurat) return;
 
     setEditLoading(true);
     try {
+      const targetPhone = (editNoWa || selectedSurat.no_wa || '').trim();
+
       let query = supabase.from('surat').update({
         status: editStatus,
         posisi: editPosisi,
+        no_wa: targetPhone,
       });
 
       if (selectedSurat.id) {
@@ -178,11 +236,13 @@ export default function SuratApp() {
         return;
       }
 
+      const clean = (str) => (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
       const pesanTelegram = `🔄 <b>UPDATE DISPOSISI SURAT</b>\n\n` +
-        `<b>No. Agenda:</b> ${selectedSurat.no_agenda}\n` +
-        `<b>Pengirim:</b> ${selectedSurat.pengirim}\n` +
-        `<b>Status Baru:</b> ${editStatus}\n` +
-        `<b>Posisi Baru:</b> ${editPosisi}`;
+        `<b>No. Agenda:</b> ${clean(selectedSurat.no_agenda)}\n` +
+        `<b>Pengirim:</b> ${clean(selectedSurat.pengirim)}\n` +
+        `<b>Status Baru:</b> ${clean(editStatus)}\n` +
+        `<b>Posisi Baru:</b> ${clean(editPosisi)}`;
 
       const pesanWA = `*UPDATE DISPOSISI SURAT*\n\n` +
         `No. Agenda: ${selectedSurat.no_agenda}\n` +
@@ -190,15 +250,20 @@ export default function SuratApp() {
         `Status Baru: ${editStatus}\n` +
         `Posisi Baru: ${editPosisi}`;
 
-      await sendNotification({
+      const notifResult = await sendNotification({
         pesanTelegram,
         pesanWA,
-        nomorWaTarget: selectedSurat.no_wa || '',
+        nomorWaTarget: targetPhone,
       });
 
       await fetchSurat();
       setSelectedSurat(null);
-      alert('Status & posisi surat berhasil diperbarui!');
+
+      if (notifResult && notifResult.errors && notifResult.errors.length > 0) {
+        alert('Data berhasil diperbarui di database, TETAPI notifikasi gagal:\n\n' + notifResult.errors.join('\n'));
+      } else {
+        alert('Status & posisi surat berhasil diperbarui!');
+      }
     } catch (err) {
       alert('Terjadi kesalahan: ' + err.message);
     } finally {
@@ -206,21 +271,23 @@ export default function SuratApp() {
     }
   };
 
-  // Fitur Export CSV (Rekap Data)
+  // Export CSV
   const handleExportCSV = () => {
     if (suratList.length === 0) {
       alert('Belum ada data untuk diexport!');
       return;
     }
 
-    const headers = ['No. Agenda', 'Pengirim', 'Perihal', 'Status', 'Posisi', 'Tanggal Masuk'];
+    const headers = ['No. Agenda', 'Jenis', 'Pengirim', 'Perihal', 'Status', 'Posisi', 'No. WA', 'File URL'];
     const rows = suratList.map((item) => [
       `"${item.no_agenda || ''}"`,
+      `"${item.jenis_surat || 'Online'}"`,
       `"${item.pengirim || ''}"`,
       `"${item.perihal || ''}"`,
       `"${item.status || ''}"`,
       `"${item.posisi || ''}"`,
-      `"${item.created_at ? new Date(item.created_at).toLocaleDateString('id-ID') : ''}"`
+      `"${item.no_wa || ''}"`,
+      `"${item.pdf_url || item.foto_url || ''}"`
     ]);
 
     const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
@@ -243,13 +310,12 @@ export default function SuratApp() {
     setSearchResult(found || 'NOT_FOUND');
   };
 
-  // Perhitungan Data Analitik (Dashboard Stats)
+  // Dashboard Stats
   const totalSurat = suratList.length;
   const diprosesCount = suratList.filter((s) => s.status === 'Diproses').length;
   const selesaiCount = suratList.filter((s) => s.status === 'SELESAI').length;
   const ditolakCount = suratList.filter((s) => s.status === 'Ditolak').length;
 
-  // Data Terfilter untuk Tabel
   const filteredSuratList = suratList.filter((item) => {
     if (filterStatus === 'Semua') return true;
     return item.status === filterStatus;
@@ -268,7 +334,7 @@ export default function SuratApp() {
             <p className="text-xs text-slate-500">
               {activeTab === 'admin' 
                 ? 'Analitik, kelola dan perbarui status disposisi surat' 
-                : 'Lacak status surat & kirim pengajuan surat masuk'}
+                : 'Lacak status surat & unduh berkas surat masuk'}
             </p>
           </div>
 
@@ -344,7 +410,7 @@ export default function SuratApp() {
                 </form>
               </div>
             ) : (
-              /* TAMPILAN UTAMA ADMIN SETELAH LOGIN */
+              /* DASHBOARD UTAMA ADMIN */
               <div className="space-y-6">
                 
                 {/* WIDGET DASHBOARD ANALITIK */}
@@ -399,7 +465,7 @@ export default function SuratApp() {
                 {/* FORM INPUT & TABEL SURAT */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   
-                  {/* Form Input Surat Masuk */}
+                  {/* Form Input Surat Masuk (Admin) */}
                   <div className="lg:col-span-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
                     <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
                       <span className="text-blue-600 text-lg">⚙️</span>
@@ -407,6 +473,34 @@ export default function SuratApp() {
                     </div>
 
                     <form onSubmit={handleSimpanSurat} className="space-y-3.5 text-xs">
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Jenis Surat</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => { setJenisSurat('Online'); setSelectedFile(null); }}
+                            className={`py-2 rounded-xl border text-xs font-bold transition ${
+                              jenisSurat === 'Online'
+                                ? 'bg-blue-50 border-blue-500 text-blue-700'
+                                : 'bg-slate-50 border-slate-200 text-slate-600'
+                            }`}
+                          >
+                            💻 Online (PDF)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setJenisSurat('Offline'); setSelectedFile(null); }}
+                            className={`py-2 rounded-xl border text-xs font-bold transition ${
+                              jenisSurat === 'Offline'
+                                ? 'bg-amber-50 border-amber-500 text-amber-700'
+                                : 'bg-slate-50 border-slate-200 text-slate-600'
+                            }`}
+                          >
+                            📦 Offline (Foto)
+                          </button>
+                        </div>
+                      </div>
+
                       <div>
                         <label className="block font-bold text-slate-700 mb-1">No. Agenda</label>
                         <input
@@ -434,13 +528,29 @@ export default function SuratApp() {
                       <div>
                         <label className="block font-bold text-slate-700 mb-1">Perihal</label>
                         <textarea
-                          rows="3"
+                          rows="2"
                           required
                           placeholder="Isi perihal surat..."
                           value={perihal}
                           onChange={(e) => setPerihal(e.target.value)}
                           className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                         ></textarea>
+                      </div>
+
+                      {/* File Input Sesuai Jenis Surat */}
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">
+                          {jenisSurat === 'Offline' ? '📷 Upload Bukti Foto (Gambar)' : '📄 Upload File PDF Surat'}
+                        </label>
+                        <input
+                          type="file"
+                          accept={jenisSurat === 'Offline' ? 'image/*' : 'application/pdf'}
+                          onChange={(e) => setSelectedFile(e.target.files[0] || null)}
+                          className="w-full px-2 py-1.5 border border-slate-200 rounded-xl bg-slate-50 text-xs file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                        />
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          {jenisSurat === 'Offline' ? 'Format: JPG, PNG, WEBP' : 'Format: PDF'}
+                        </p>
                       </div>
 
                       <div>
@@ -454,28 +564,29 @@ export default function SuratApp() {
                         />
                       </div>
 
-                      <div>
-                        <label className="block font-bold text-slate-700 mb-1">Status Awal</label>
-                        <select
-                          value={statusAwal}
-                          onChange={(e) => setStatusAwal(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="Diproses">Diproses</option>
-                          <option value="SELESAI">SELESAI</option>
-                          <option value="Ditolak">Ditolak</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block font-bold text-slate-700 mb-1">Posisi Saat Ini</label>
-                        <input
-                          type="text"
-                          placeholder="Subag Umum / Bidang Pembinaan"
-                          value={posisiSaatIni}
-                          onChange={(e) => setPosisiSaatIni(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">Status Awal</label>
+                          <select
+                            value={statusAwal}
+                            onChange={(e) => setStatusAwal(e.target.value)}
+                            className="w-full px-2 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="Diproses">Diproses</option>
+                            <option value="SELESAI">SELESAI</option>
+                            <option value="Ditolak">Ditolak</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-700 mb-1">Posisi Surat</label>
+                          <input
+                            type="text"
+                            placeholder="Subag Umum"
+                            value={posisiSaatIni}
+                            onChange={(e) => setPosisiSaatIni(e.target.value)}
+                            className="w-full px-2 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
                       </div>
 
                       <button
@@ -483,12 +594,12 @@ export default function SuratApp() {
                         disabled={loading}
                         className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl transition shadow-xs text-xs mt-2 disabled:opacity-50"
                       >
-                        {loading ? 'Menyimpan & Mengirim...' : 'Simpan Surat Baru'}
+                        {loading ? 'Mengunggah & Menyimpan...' : 'Simpan Surat Baru'}
                       </button>
                     </form>
                   </div>
 
-                  {/* Tabel Daftar Surat dengan Filter & Export CSV */}
+                  {/* Tabel Daftar Surat */}
                   <div className="lg:col-span-8 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-100">
                       <div className="flex items-center gap-2">
@@ -496,7 +607,6 @@ export default function SuratApp() {
                         <h2 className="font-bold text-slate-800 text-base">Daftar Surat Registered</h2>
                       </div>
 
-                      {/* FILTER & TOMBOL EXPORT CSV */}
                       <div className="flex items-center gap-2">
                         <select
                           value={filterStatus}
@@ -524,56 +634,79 @@ export default function SuratApp() {
                           <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                             <th className="py-3 px-3">NO. AGENDA</th>
                             <th className="py-3 px-3">PENGIRIM & PERIHAL</th>
+                            <th className="py-3 px-3">BERKAS</th>
                             <th className="py-3 px-3">STATUS & POSISI</th>
                             <th className="py-3 px-3 text-center">AKSI</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-xs">
                           {filteredSuratList.length > 0 ? (
-                            filteredSuratList.map((item, index) => (
-                              <tr key={item.id || index} className="hover:bg-slate-50/80 transition">
-                                <td className="py-4 px-3 font-semibold text-blue-600 whitespace-nowrap">
-                                  {item.no_agenda}
-                                </td>
-                                <td className="py-4 px-3">
-                                  <div className="font-bold text-slate-800">{item.pengirim}</div>
-                                  <div className="text-slate-500 text-[11px]">{item.perihal}</div>
-                                </td>
-                                <td className="py-4 px-3 whitespace-nowrap">
-                                  <span
-                                    className={`inline-block px-2.5 py-0.5 text-[10px] font-bold rounded-md uppercase tracking-wide text-white mb-1 ${
-                                      item.status === 'SELESAI'
-                                        ? 'bg-teal-500'
-                                        : item.status === 'Ditolak'
-                                        ? 'bg-red-500'
-                                        : 'bg-sky-500'
-                                    }`}
-                                  >
-                                    {item.status || 'Diproses'}
-                                  </span>
-                                  <div className="text-slate-500 text-[11px]">{item.posisi || 'Subag Umum'}</div>
-                                </td>
-                                <td className="py-4 px-3 whitespace-nowrap text-center">
-                                  <div className="flex items-center justify-center gap-1.5">
-                                    <button
-                                      onClick={() => handleOpenEditModal(item)}
-                                      className="bg-red-500 hover:bg-red-600 text-white font-medium px-2.5 py-1 rounded-md text-[11px] transition shadow-xs"
+                            filteredSuratList.map((item, index) => {
+                              const fileUrl = item.pdf_url || item.foto_url;
+                              return (
+                                <tr key={item.id || index} className="hover:bg-slate-50/80 transition">
+                                  <td className="py-4 px-3 font-semibold text-blue-600 whitespace-nowrap">
+                                    <div>{item.no_agenda}</div>
+                                    <span className={`inline-block px-1.5 py-0.5 text-[9px] font-bold rounded mt-1 ${
+                                      item.jenis_surat === 'Offline' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'
+                                    }`}>
+                                      {item.jenis_surat || 'Online'}
+                                    </span>
+                                  </td>
+                                  <td className="py-4 px-3">
+                                    <div className="font-bold text-slate-800">{item.pengirim}</div>
+                                    <div className="text-slate-500 text-[11px]">{item.perihal}</div>
+                                  </td>
+                                  <td className="py-4 px-3 whitespace-nowrap">
+                                    {fileUrl ? (
+                                      <a
+                                        href={fileUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-medium transition"
+                                      >
+                                        {item.jenis_surat === 'Offline' ? '🖼️ Foto' : '📄 PDF'}
+                                      </a>
+                                    ) : (
+                                      <span className="text-slate-400 italic text-[11px]">Tidak Ada</span>
+                                    )}
+                                  </td>
+                                  <td className="py-4 px-3 whitespace-nowrap">
+                                    <span
+                                      className={`inline-block px-2.5 py-0.5 text-[10px] font-bold rounded-md uppercase tracking-wide text-white mb-1 ${
+                                        item.status === 'SELESAI'
+                                          ? 'bg-teal-500'
+                                          : item.status === 'Ditolak'
+                                          ? 'bg-red-500'
+                                          : 'bg-sky-500'
+                                      }`}
                                     >
-                                      Update
-                                    </button>
-                                    <button
-                                      onClick={() => window.print()}
-                                      className="bg-slate-700 hover:bg-slate-800 text-white font-medium px-2.5 py-1 rounded-md text-[11px] transition shadow-xs"
-                                    >
-                                      Cetak
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))
+                                      {item.status || 'Diproses'}
+                                    </span>
+                                    <div className="text-slate-500 text-[11px]">{item.posisi || 'Subag Umum'}</div>
+                                  </td>
+                                  <td className="py-4 px-3 whitespace-nowrap text-center">
+                                    <div className="flex items-center justify-center gap-1.5">
+                                      <button
+                                        onClick={() => handleOpenEditModal(item)}
+                                        className="bg-red-500 hover:bg-red-600 text-white font-medium px-2.5 py-1 rounded-md text-[11px] transition shadow-xs"
+                                      >
+                                        Update
+                                      </button>
+                                      <button
+                                        onClick={() => window.print()}
+                                        className="bg-slate-700 hover:bg-slate-800 text-white font-medium px-2.5 py-1 rounded-md text-[11px] transition shadow-xs"
+                                      >
+                                        Cetak
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
                           ) : (
                             <tr>
-                              <td colSpan="4" className="text-center py-6 text-slate-400">
+                              <td colSpan="5" className="text-center py-6 text-slate-400">
                                 Tidak ada data surat yang sesuai dengan filter.
                               </td>
                             </tr>
@@ -592,6 +725,8 @@ export default function SuratApp() {
         {/* TAMPILAN PORTAL PUBLIK */}
         {activeTab === 'public' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            {/* FITUR LACAK STATUS & UNDUH FILE */}
             <div className="lg:col-span-5 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
               <h2 className="font-bold text-slate-800 text-base border-b pb-2">🔍 Lacak Status Surat</h2>
               <form onSubmit={handleCariSurat} className="space-y-3">
@@ -610,14 +745,54 @@ export default function SuratApp() {
                 </button>
               </form>
 
+              {/* HASIL LACAK SURAT DENGAN TOMBOL UNDUH FILE */}
               {searchResult && searchResult !== 'NOT_FOUND' && (
-                <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-xs space-y-1 mt-4">
-                  <div className="font-bold text-blue-900 text-sm">{searchResult.no_agenda}</div>
-                  <div className="text-slate-600">Pengirim: {searchResult.pengirim}</div>
-                  <div className="text-slate-600">Perihal: {searchResult.perihal}</div>
-                  <div className="mt-2 pt-2 border-t border-blue-200 flex justify-between items-center">
-                    <span className="font-semibold text-slate-700">Status: {searchResult.status}</span>
-                    <span className="text-slate-500">Posisi: {searchResult.posisi}</span>
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-2xl text-xs space-y-3 mt-4">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <div className="font-extrabold text-blue-900 text-sm">{searchResult.no_agenda}</div>
+                      <div className="text-slate-600 font-medium">Pengirim: {searchResult.pengirim}</div>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      searchResult.jenis_surat === 'Offline' ? 'bg-amber-200 text-amber-800' : 'bg-blue-200 text-blue-800'
+                    }`}>
+                      Surat {searchResult.jenis_surat || 'Online'}
+                    </span>
+                  </div>
+
+                  <div className="text-slate-600 bg-white p-2.5 rounded-xl border border-blue-100">
+                    <span className="font-semibold text-slate-700 block mb-0.5">Perihal:</span>
+                    {searchResult.perihal}
+                  </div>
+
+                  <div className="pt-2 border-t border-blue-200 flex justify-between items-center text-xs">
+                    <div>
+                      <span className="text-slate-500 block text-[10px]">STATUS</span>
+                      <span className="font-bold text-slate-800 uppercase">{searchResult.status}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-slate-500 block text-[10px]">POSISI SAAT INI</span>
+                      <span className="font-bold text-slate-800">{searchResult.posisi}</span>
+                    </div>
+                  </div>
+
+                  {/* BAGIAN UNDUH FILE / BUKTI FOTO */}
+                  <div className="pt-2 border-t border-blue-200">
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1.5">Berkas Surat:</label>
+                    {searchResult.pdf_url || searchResult.foto_url ? (
+                      <a
+                        href={searchResult.pdf_url || searchResult.foto_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 px-3 rounded-xl transition flex items-center justify-center gap-2 text-xs shadow-xs"
+                      >
+                        {searchResult.jenis_surat === 'Offline' ? '🖼️ Unduh / Lihat Bukti Foto' : '📄 Unduh / Lihat File PDF'}
+                      </a>
+                    ) : (
+                      <div className="p-2 bg-slate-100 text-slate-500 rounded-xl text-center text-[11px] italic">
+                        Tidak ada file berkas yang diunggah untuk surat ini.
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -629,9 +804,39 @@ export default function SuratApp() {
               )}
             </div>
 
+            {/* FORM PENGAJUAN SURAT PUBLIK */}
             <div className="lg:col-span-7 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
               <h2 className="font-bold text-slate-800 text-base border-b pb-2">📝 Form Pengajuan Surat Masuk</h2>
               <form onSubmit={handleSimpanSurat} className="space-y-3 text-xs">
+                
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Jenis Pengajuan Surat</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setJenisSurat('Online'); setSelectedFile(null); }}
+                      className={`py-2 rounded-xl border text-xs font-bold transition ${
+                        jenisSurat === 'Online'
+                          ? 'bg-blue-50 border-blue-500 text-blue-700'
+                          : 'bg-slate-50 border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      💻 Surat Online (Upload PDF)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setJenisSurat('Offline'); setSelectedFile(null); }}
+                      className={`py-2 rounded-xl border text-xs font-bold transition ${
+                        jenisSurat === 'Offline'
+                          ? 'bg-amber-50 border-amber-500 text-amber-700'
+                          : 'bg-slate-50 border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      📦 Surat Offline (Upload Bukti Foto)
+                    </button>
+                  </div>
+                </div>
+
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">No. Agenda / No. Surat</label>
                   <input
@@ -643,6 +848,7 @@ export default function SuratApp() {
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
+
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Instansi / Pengirim</label>
                   <input
@@ -654,6 +860,7 @@ export default function SuratApp() {
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
+
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Perihal Surat</label>
                   <textarea
@@ -665,6 +872,20 @@ export default function SuratApp() {
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 resize-none"
                   ></textarea>
                 </div>
+
+                {/* Upload File Publik */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {jenisSurat === 'Offline' ? '📷 Unggah Bukti Foto Surat Offline' : '📄 Unggah File PDF Surat Online'}
+                  </label>
+                  <input
+                    type="file"
+                    accept={jenisSurat === 'Offline' ? 'image/*' : 'application/pdf'}
+                    onChange={(e) => setSelectedFile(e.target.files[0] || null)}
+                    className="w-full px-2 py-1.5 border border-slate-200 rounded-xl bg-slate-50 text-xs file:mr-2 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                  />
+                </div>
+
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">No. WhatsApp Anda (Opsional)</label>
                   <input
@@ -681,14 +902,14 @@ export default function SuratApp() {
                   disabled={loading}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-xl transition shadow-xs"
                 >
-                  {loading ? 'Mengirim...' : 'Kirim Pengajuan Surat'}
+                  {loading ? 'Mengunggah & Mengirim...' : 'Kirim Pengajuan Surat'}
                 </button>
               </form>
             </div>
           </div>
         )}
 
-        {/* MODAL EDIT STATUS & POSISI */}
+        {/* MODAL EDIT STATUS, POSISI & WHATSAPP */}
         {selectedSurat && (
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4 border border-slate-200">
@@ -734,6 +955,17 @@ export default function SuratApp() {
                     placeholder="Contoh: Subag Umum / Bidang Pembinaan"
                     value={editPosisi}
                     onChange={(e) => setEditPosisi(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">No. WhatsApp Notifikasi</label>
+                  <input
+                    type="text"
+                    placeholder="Contoh: 081234567890"
+                    value={editNoWa}
+                    onChange={(e) => setEditNoWa(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                   />
                 </div>
