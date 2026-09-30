@@ -37,11 +37,13 @@ export default function SuratApp() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResult, setSearchResult] = useState(null);
 
-  // Modal State (Edit Status, Posisi & WA Admin)
+  // Modal State (Edit Status, Posisi, WA Admin, & Upload/Ganti File)
   const [selectedSurat, setSelectedSurat] = useState(null);
   const [editStatus, setEditStatus] = useState('Diproses');
   const [editPosisi, setEditPosisi] = useState('');
   const [editNoWa, setEditNoWa] = useState('');
+  const [editSelectedFile, setEditSelectedFile] = useState(null);
+  const [editFileType, setEditFileType] = useState('pdf'); // 'pdf' | 'foto'
   const [editLoading, setEditLoading] = useState(false);
 
   // Cek Status Login Admin
@@ -195,19 +197,22 @@ export default function SuratApp() {
     }
   };
 
-  // Modal Edit
+  // Buka Modal Edit
   const handleOpenEditModal = (item) => {
     setSelectedSurat(item);
     setEditStatus(item.status || 'Diproses');
     setEditPosisi(item.posisi || 'Subag Umum');
     setEditNoWa(item.no_wa || '');
+    setEditSelectedFile(null);
+    setEditFileType(item.jenis_surat === 'Offline' ? 'foto' : 'pdf');
   };
 
   const handleCloseEditModal = () => {
     setSelectedSurat(null);
+    setEditSelectedFile(null);
   };
 
-  // Update Status & Disposisi
+  // Update Status, Disposisi & Unggah Berkas Baru
   const handleSaveUpdate = async (e) => {
     e.preventDefault();
     if (!selectedSurat) return;
@@ -216,11 +221,28 @@ export default function SuratApp() {
     try {
       const targetPhone = (editNoWa || selectedSurat.no_wa || '').trim();
 
-      let query = supabase.from('surat').update({
+      let newPdfUrl = selectedSurat.pdf_url;
+      let newFotoUrl = selectedSurat.foto_url;
+
+      // Jika ada file baru yang diunggah oleh admin
+      if (editSelectedFile) {
+        const uploadedUrl = await uploadFileToStorage(editSelectedFile);
+        if (editFileType === 'pdf') {
+          newPdfUrl = uploadedUrl;
+        } else {
+          newFotoUrl = uploadedUrl;
+        }
+      }
+
+      const updatePayload = {
         status: editStatus,
         posisi: editPosisi,
         no_wa: targetPhone,
-      });
+        pdf_url: newPdfUrl,
+        foto_url: newFotoUrl,
+      };
+
+      let query = supabase.from('surat').update(updatePayload);
 
       if (selectedSurat.id) {
         query = query.eq('id', selectedSurat.id);
@@ -242,13 +264,15 @@ export default function SuratApp() {
         `<b>No. Agenda:</b> ${clean(selectedSurat.no_agenda)}\n` +
         `<b>Pengirim:</b> ${clean(selectedSurat.pengirim)}\n` +
         `<b>Status Baru:</b> ${clean(editStatus)}\n` +
-        `<b>Posisi Baru:</b> ${clean(editPosisi)}`;
+        `<b>Posisi Baru:</b> ${clean(editPosisi)}` +
+        (editSelectedFile ? `\n<b>File Lampiran:</b> Berkas baru telah diunggah.` : '');
 
       const pesanWA = `*UPDATE DISPOSISI SURAT*\n\n` +
         `No. Agenda: ${selectedSurat.no_agenda}\n` +
         `Pengirim: ${selectedSurat.pengirim}\n` +
         `Status Baru: ${editStatus}\n` +
-        `Posisi Baru: ${editPosisi}`;
+        `Posisi Baru: ${editPosisi}\n\n` +
+        `Silakan cek berkas surat Anda melalui portal publik.`;
 
       const notifResult = await sendNotification({
         pesanTelegram,
@@ -257,12 +281,12 @@ export default function SuratApp() {
       });
 
       await fetchSurat();
-      setSelectedSurat(null);
+      handleCloseEditModal();
 
       if (notifResult && notifResult.errors && notifResult.errors.length > 0) {
         alert('Data berhasil diperbarui di database, TETAPI notifikasi gagal:\n\n' + notifResult.errors.join('\n'));
       } else {
-        alert('Status & posisi surat berhasil diperbarui!');
+        alert('Status, posisi, & berkas surat berhasil diperbarui!');
       }
     } catch (err) {
       alert('Terjadi kesalahan: ' + err.message);
@@ -909,10 +933,10 @@ export default function SuratApp() {
           </div>
         )}
 
-        {/* MODAL EDIT STATUS, POSISI & WHATSAPP */}
+        {/* MODAL EDIT STATUS, POSISI, WHATSAPP & UPLOAD FILE TTD */}
         {selectedSurat && (
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4 border border-slate-200">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4 border border-slate-200 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between border-b pb-3">
                 <h3 className="font-bold text-slate-800 text-sm">
                   Update Disposisi: <span className="text-blue-600">{selectedSurat.no_agenda}</span>
@@ -959,6 +983,67 @@ export default function SuratApp() {
                   />
                 </div>
 
+                {/* MODUL UNGGAN / GANTI FILE SURAT (PDF TTD / FOTO) */}
+                <div className="p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-2">
+                  <label className="block font-bold text-indigo-900 mb-1">
+                    ✏️ Unggah / Ganti Berkas Surat (Hasil TTD Admin)
+                  </label>
+                  
+                  {/* Status File Saat Ini */}
+                  {(selectedSurat.pdf_url || selectedSurat.foto_url) ? (
+                    <div className="text-[11px] text-slate-600 mb-1 flex items-center gap-1">
+                      <span>File saat ini:</span>
+                      <a
+                        href={selectedSurat.pdf_url || selectedSurat.foto_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 underline font-semibold hover:text-blue-800"
+                      >
+                        Lihat Berkas Terpasang
+                      </a>
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-slate-400 italic mb-1">Belum ada file diunggah.</div>
+                  )}
+
+                  {/* Pilihan Jenis File Baru */}
+                  <div className="grid grid-cols-2 gap-2 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditFileType('pdf')}
+                      className={`py-1 px-2 rounded-lg text-[11px] font-bold border transition ${
+                        editFileType === 'pdf'
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-white border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      📄 File PDF (TTD)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditFileType('foto')}
+                      className={`py-1 px-2 rounded-lg text-[11px] font-bold border transition ${
+                        editFileType === 'foto'
+                          ? 'bg-amber-600 text-white border-amber-600'
+                          : 'bg-white border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      🖼️ Foto Lampiran
+                    </button>
+                  </div>
+
+                  {/* Input File Baru */}
+                  <input
+                    type="file"
+                    accept={editFileType === 'pdf' ? 'application/pdf' : 'image/*'}
+                    onChange={(e) => setEditSelectedFile(e.target.files[0] || null)}
+                    className="w-full px-2 py-1 border border-slate-200 rounded-xl bg-white text-xs file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
+                  />
+                  <p className="text-[10px] text-slate-500 italic">
+                    Pilih file baru jika ingin mengganti/mengunggah file surat yang sudah di-TTD.
+                  </p>
+                </div>
+
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">No. WhatsApp Notifikasi</label>
                   <input
@@ -983,7 +1068,7 @@ export default function SuratApp() {
                     disabled={editLoading}
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-xs transition disabled:opacity-50"
                   >
-                    {editLoading ? 'Menyimpan...' : 'Simpan Perubahan'}
+                    {editLoading ? 'Menyimpan & Mengunggah...' : 'Simpan Perubahan'}
                   </button>
                 </div>
               </form>
