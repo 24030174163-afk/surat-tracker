@@ -4,9 +4,17 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { sendTelegramNotification } from '../lib/telegram';
 
+// 🔑 KATA SANDI ADMIN (Bisa Anda ubah di sini)
+const ADMIN_PASSWORD = 'dikdas123';
+
 export default function SuratApp() {
   // Mode Navigasi: 'admin' atau 'public'
-  const [activeTab, setActiveTab] = useState('admin');
+  const [activeTab, setActiveTab] = useState('public');
+
+  // State Autentikasi Admin
+  const [isAdminAuth, setIsAdminAuth] = useState(false);
+  const [inputPassword, setInputPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
 
   // State Data Surat
   const [suratList, setSuratList] = useState([]);
@@ -24,13 +32,19 @@ export default function SuratApp() {
   const [searchResult, setSearchResult] = useState(null);
 
   // Modal State (Edit Status & Posisi Admin)
-  const [selectedSurat, setSelectedSurat] = useState(null); // Menyimpan objek surat yang diedit
+  const [selectedSurat, setSelectedSurat] = useState(null);
   const [editStatus, setEditStatus] = useState('Diproses');
   const [editPosisi, setEditPosisi] = useState('');
   const [editLoading, setEditLoading] = useState(false);
 
-  // Fetch Data dari Supabase
+  // Cek Status Login Admin dari SessionStorage saat aplikasi dibuka
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedAuth = sessionStorage.getItem('isAdminAuth');
+      if (savedAuth === 'true') {
+        setIsAdminAuth(true);
+      }
+    }
     fetchSurat();
   }, []);
 
@@ -51,6 +65,26 @@ export default function SuratApp() {
     }
   };
 
+  // Handler Login Admin
+  const handleAdminLogin = (e) => {
+    e.preventDefault();
+    if (inputPassword === ADMIN_PASSWORD) {
+      setIsAdminAuth(true);
+      sessionStorage.setItem('isAdminAuth', 'true');
+      setInputPassword('');
+      setPasswordError('');
+    } else {
+      setPasswordError('Kata sandi salah! Silakan coba lagi.');
+    }
+  };
+
+  // Handler Logout Admin
+  const handleAdminLogout = () => {
+    setIsAdminAuth(false);
+    sessionStorage.removeItem('isAdminAuth');
+    setActiveTab('public');
+  };
+
   // Simpan Surat Baru
   const handleSimpanSurat = async (e) => {
     e.preventDefault();
@@ -69,7 +103,6 @@ export default function SuratApp() {
     };
 
     try {
-      // 1. Simpan ke Supabase
       const { error } = await supabase.from('surat').insert([newSurat]);
 
       if (error) {
@@ -78,11 +111,9 @@ export default function SuratApp() {
         return;
       }
 
-      // 2. Kirim Notifikasi Telegram
       const pesan = `📩 <b>SURAT MASUK BARU</b>\n\n<b>No. Agenda:</b> ${noAgenda}\n<b>Pengirim:</b> ${pengirim}\n<b>Perihal:</b> ${perihal}\n<b>Status:</b> ${statusAwal}\n<b>Posisi:</b> ${posisiSaatIni || 'Subag Umum'}`;
       await sendTelegramNotification(pesan);
 
-      // 3. Reset Form & Refresh
       setNoAgenda('');
       setPengirim('');
       setPerihal('');
@@ -115,7 +146,6 @@ export default function SuratApp() {
 
     setEditLoading(true);
     try {
-      // 1. Update ke Supabase
       let query = supabase.from('surat').update({
         status: editStatus,
         posisi: editPosisi,
@@ -135,7 +165,6 @@ export default function SuratApp() {
         return;
       }
 
-      // 2. Kirim Notifikasi Update ke Telegram
       const pesan = `🔄 <b>UPDATE DISPOSISI SURAT</b>\n\n` +
         `<b>No. Agenda:</b> ${selectedSurat.no_agenda}\n` +
         `<b>Pengirim:</b> ${selectedSurat.pengirim}\n` +
@@ -144,7 +173,6 @@ export default function SuratApp() {
       
       await sendTelegramNotification(pesan);
 
-      // 3. Refresh Data & Tutup Modal
       await fetchSurat();
       setSelectedSurat(null);
       alert('Status & posisi surat berhasil diperbarui!');
@@ -170,14 +198,14 @@ export default function SuratApp() {
       <div className="max-w-7xl mx-auto space-y-6">
         
         {/* Header Bar */}
-        <header className="bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-center justify-between gap-4">
+        <header className="bg-white/90 backdrop-blur-md p-4 rounded-2xl shadow-xs border border-slate-200 flex flex-col md:flex-row items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">
               {activeTab === 'admin' ? 'Dashboard Admin Surat' : 'Portal Publik Surat'}
             </h1>
             <p className="text-xs text-slate-500">
               {activeTab === 'admin' 
-                ? 'Input dan perbarui status disposisi surat' 
+                ? 'Kelola dan perbarui status disposisi surat' 
                 : 'Lacak status surat & kirim pengajuan surat masuk'}
             </p>
           </div>
@@ -203,163 +231,211 @@ export default function SuratApp() {
             >
               ⚙️ Dashboard Admin
             </button>
+            {isAdminAuth && activeTab === 'admin' && (
+              <button
+                onClick={handleAdminLogout}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-100 text-red-600 hover:bg-red-200 transition"
+              >
+                🔒 Keluar
+              </button>
+            )}
           </div>
         </header>
 
         {/* TAMPILAN DASHBOARD ADMIN */}
         {activeTab === 'admin' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Form Input Surat Masuk */}
-            <div className="lg:col-span-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
-              <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-                <span className="text-blue-600 text-lg">⚙️</span>
-                <h2 className="font-bold text-slate-800 text-base">Input Surat Masuk</h2>
-              </div>
-
-              <form onSubmit={handleSimpanSurat} className="space-y-3.5 text-xs">
+          <>
+            {/* TAMPILAN LOGIN JIKA BELUM TERAUTENTIKASI */}
+            {!isAdminAuth ? (
+              <div className="max-w-md mx-auto my-12 bg-white p-8 rounded-2xl shadow-sm border border-slate-200 space-y-6 text-center">
+                <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center text-2xl mx-auto border border-blue-100">
+                  🔐
+                </div>
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">No. Agenda</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Contoh: SRT-001"
-                    value={noAgenda}
-                    onChange={(e) => setNoAgenda(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                  <h2 className="text-lg font-bold text-slate-800">Akses Admin Terkunci</h2>
+                  <p className="text-xs text-slate-500 mt-1">Masukkan kata sandi untuk mengelola data surat</p>
                 </div>
 
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Pengirim</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Nama Instansi / Pengirim"
-                    value={pengirim}
-                    onChange={(e) => setPengirim(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
+                <form onSubmit={handleAdminLogin} className="space-y-4 text-left">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Kata Sandi Admin</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="Masukkan kata sandi..."
+                      value={inputPassword}
+                      onChange={(e) => setInputPassword(e.target.value)}
+                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none bg-slate-50 focus:bg-white"
+                    />
+                  </div>
 
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Perihal</label>
-                  <textarea
-                    rows="3"
-                    required
-                    placeholder="Isi perihal surat..."
-                    value={perihal}
-                    onChange={(e) => setPerihal(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                  ></textarea>
-                </div>
+                  {passwordError && (
+                    <p className="text-xs text-red-500 font-medium">{passwordError}</p>
+                  )}
 
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Status Awal</label>
-                  <select
-                    value={statusAwal}
-                    onChange={(e) => setStatusAwal(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  <button
+                    type="submit"
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-2.5 rounded-xl transition shadow-xs"
                   >
-                    <option value="Diproses">Diproses</option>
-                    <option value="SELESAI">SELESAI</option>
-                    <option value="Ditolak">Ditolak</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Posisi Saat Ini</label>
-                  <input
-                    type="text"
-                    placeholder="Subag Umum / Bidang Pembinaan"
-                    value={posisiSaatIni}
-                    onChange={(e) => setPosisiSaatIni(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl transition shadow-sm text-xs mt-2 disabled:opacity-50"
-                >
-                  {loading ? 'Menyimpan...' : 'Simpan Surat Baru'}
-                </button>
-              </form>
-            </div>
-
-            {/* Tabel Daftar Surat */}
-            <div className="lg:col-span-8 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
-              <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
-                <span className="text-blue-600 text-lg">☰</span>
-                <h2 className="font-bold text-slate-800 text-base">Daftar Surat Registered</h2>
+                    Buka Akses Admin
+                  </button>
+                </form>
               </div>
+            ) : (
+              /* TAMPILAN UTAMA ADMIN SETELAH LOGIN */
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Form Input Surat Masuk */}
+                <div className="lg:col-span-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+                  <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                    <span className="text-blue-600 text-lg">⚙️</span>
+                    <h2 className="font-bold text-slate-800 text-base">Input Surat Masuk</h2>
+                  </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                      <th className="py-3 px-3">NO. AGENDA</th>
-                      <th className="py-3 px-3">PENGIRIM & PERIHAL</th>
-                      <th className="py-3 px-3">STATUS & POSISI</th>
-                      <th className="py-3 px-3 text-center">AKSI</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-xs">
-                    {suratList.length > 0 ? (
-                      suratList.map((item, index) => (
-                        <tr key={item.id || index} className="hover:bg-slate-50/80 transition">
-                          <td className="py-4 px-3 font-semibold text-blue-600 whitespace-nowrap">
-                            {item.no_agenda}
-                          </td>
-                          <td className="py-4 px-3">
-                            <div className="font-bold text-slate-800">{item.pengirim}</div>
-                            <div className="text-slate-500 text-[11px]">{item.perihal}</div>
-                          </td>
-                          <td className="py-4 px-3 whitespace-nowrap">
-                            <span
-                              className={`inline-block px-2.5 py-0.5 text-[10px] font-bold rounded-md uppercase tracking-wide text-white mb-1 ${
-                                item.status === 'SELESAI'
-                                  ? 'bg-teal-500'
-                                  : item.status === 'Ditolak'
-                                  ? 'bg-red-500'
-                                  : 'bg-sky-500'
-                              }`}
-                            >
-                              {item.status || 'Diproses'}
-                            </span>
-                            <div className="text-slate-500 text-[11px]">{item.posisi || 'Subag Umum'}</div>
-                          </td>
-                          <td className="py-4 px-3 whitespace-nowrap text-center">
-                            <div className="flex items-center justify-center gap-1.5">
-                              {/* TOMBOL UPDATE BUKA MODAL EDIT */}
-                              <button
-                                onClick={() => handleOpenEditModal(item)}
-                                className="bg-red-500 hover:bg-red-600 text-white font-medium px-2.5 py-1 rounded-md text-[11px] transition shadow-xs"
-                              >
-                                Update
-                              </button>
-                              <button
-                                onClick={() => window.print()}
-                                className="bg-slate-700 hover:bg-slate-800 text-white font-medium px-2.5 py-1 rounded-md text-[11px] transition shadow-xs"
-                              >
-                                Cetak
-                              </button>
-                            </div>
-                          </td>
+                  <form onSubmit={handleSimpanSurat} className="space-y-3.5 text-xs">
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">No. Agenda</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Contoh: SRT-001"
+                        value={noAgenda}
+                        onChange={(e) => setNoAgenda(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Pengirim</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Nama Instansi / Pengirim"
+                        value={pengirim}
+                        onChange={(e) => setPengirim(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Perihal</label>
+                      <textarea
+                        rows="3"
+                        required
+                        placeholder="Isi perihal surat..."
+                        value={perihal}
+                        onChange={(e) => setPerihal(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                      ></textarea>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Status Awal</label>
+                      <select
+                        value={statusAwal}
+                        onChange={(e) => setStatusAwal(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="Diproses">Diproses</option>
+                        <option value="SELESAI">SELESAI</option>
+                        <option value="Ditolak">Ditolak</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Posisi Saat Ini</label>
+                      <input
+                        type="text"
+                        placeholder="Subag Umum / Bidang Pembinaan"
+                        value={posisiSaatIni}
+                        onChange={(e) => setPosisiSaatIni(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl transition shadow-xs text-xs mt-2 disabled:opacity-50"
+                    >
+                      {loading ? 'Menyimpan...' : 'Simpan Surat Baru'}
+                    </button>
+                  </form>
+                </div>
+
+                {/* Tabel Daftar Surat */}
+                <div className="lg:col-span-8 bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+                  <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+                    <span className="text-blue-600 text-lg">☰</span>
+                    <h2 className="font-bold text-slate-800 text-base">Daftar Surat Registered</h2>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          <th className="py-3 px-3">NO. AGENDA</th>
+                          <th className="py-3 px-3">PENGIRIM & PERIHAL</th>
+                          <th className="py-3 px-3">STATUS & POSISI</th>
+                          <th className="py-3 px-3 text-center">AKSI</th>
                         </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan="4" className="text-center py-6 text-slate-400">
-                          Belum ada data surat.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-xs">
+                        {suratList.length > 0 ? (
+                          suratList.map((item, index) => (
+                            <tr key={item.id || index} className="hover:bg-slate-50/80 transition">
+                              <td className="py-4 px-3 font-semibold text-blue-600 whitespace-nowrap">
+                                {item.no_agenda}
+                              </td>
+                              <td className="py-4 px-3">
+                                <div className="font-bold text-slate-800">{item.pengirim}</div>
+                                <div className="text-slate-500 text-[11px]">{item.perihal}</div>
+                              </td>
+                              <td className="py-4 px-3 whitespace-nowrap">
+                                <span
+                                  className={`inline-block px-2.5 py-0.5 text-[10px] font-bold rounded-md uppercase tracking-wide text-white mb-1 ${
+                                    item.status === 'SELESAI'
+                                      ? 'bg-teal-500'
+                                      : item.status === 'Ditolak'
+                                      ? 'bg-red-500'
+                                      : 'bg-sky-500'
+                                  }`}
+                                >
+                                  {item.status || 'Diproses'}
+                                </span>
+                                <div className="text-slate-500 text-[11px]">{item.posisi || 'Subag Umum'}</div>
+                              </td>
+                              <td className="py-4 px-3 whitespace-nowrap text-center">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    onClick={() => handleOpenEditModal(item)}
+                                    className="bg-red-500 hover:bg-red-600 text-white font-medium px-2.5 py-1 rounded-md text-[11px] transition shadow-xs"
+                                  >
+                                    Update
+                                  </button>
+                                  <button
+                                    onClick={() => window.print()}
+                                    className="bg-slate-700 hover:bg-slate-800 text-white font-medium px-2.5 py-1 rounded-md text-[11px] transition shadow-xs"
+                                  >
+                                    Cetak
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan="4" className="text-center py-6 text-slate-400">
+                              Belum ada data surat.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
+            )}
+          </>
         )}
 
         {/* TAMPILAN PORTAL PUBLIK */}
@@ -451,10 +527,10 @@ export default function SuratApp() {
           </div>
         )}
 
-        {/* JENDELA DIALOG MODAL POP-UP EDIT STATUS & POSISI */}
+        {/* MODAL EDIT STATUS & POSISI */}
         {selectedSurat && (
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4 border border-slate-200 animate-in fade-in zoom-in duration-150">
+            <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4 border border-slate-200">
               <div className="flex items-center justify-between border-b pb-3">
                 <h3 className="font-bold text-slate-800 text-sm">
                   Update Disposisi: <span className="text-blue-600">{selectedSurat.no_agenda}</span>
@@ -476,7 +552,6 @@ export default function SuratApp() {
                   </div>
                 </div>
 
-                {/* DROPDOWN STATUS 3 OPSI */}
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Status Disposisi</label>
                   <select
@@ -490,7 +565,6 @@ export default function SuratApp() {
                   </select>
                 </div>
 
-                {/* INPUT POSISI SAAT INI */}
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">Posisi Saat Ini</label>
                   <input
